@@ -160,7 +160,7 @@ def update_balance(user_id, delta):
 def register_driver(user_id, username):
     cursor.execute("""
         INSERT OR IGNORE INTO drivers (user_id, username, balance, is_blocked, rate_per_shift, selected_car)
-        VALUES (?, ?, 0, 0, 5, 'Газель')
+        VALUES (?, ?, 500, 0, 5, 'Газель')
     """, (user_id, username))
     conn.commit()
 
