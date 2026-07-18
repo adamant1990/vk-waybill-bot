@@ -136,8 +136,21 @@ def get_admin_keyboard():
     keyboard.add_button("📋 Список водителей", color=VkKeyboardColor.PRIMARY)
     return keyboard
 
+def get_car_selection_keyboard():
+    keyboard = VkKeyboard(one_time=True)
+    cursor.execute("SELECT name FROM cars")
+    cars = cursor.fetchall()
+    for i, (car_name,) in enumerate(cars):
+        if i % 2 == 0 and i > 0:
+            keyboard.add_line()
+        keyboard.add_button(car_name, color=VkKeyboardColor.PRIMARY)
+    keyboard.add_line()
+    keyboard.add_button("❌ Отмена", color=VkKeyboardColor.NEGATIVE)
+    return keyboard
+
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 def send_message(user_id, text, keyboard=None):
+    """Отправка одного сообщения с защитой от дублирования"""
     try:
         vk.messages.send(
             user_id=user_id,
@@ -145,8 +158,10 @@ def send_message(user_id, text, keyboard=None):
             message=text,
             keyboard=keyboard.get_keyboard() if keyboard else None
         )
+        return True
     except Exception as e:
-        print(f"Ошибка отправки: {e}")
+        print(f"Ошибка отправки пользователю {user_id}: {e}")
+        return False
 
 def get_balance(user_id):
     cursor.execute("SELECT balance FROM drivers WHERE user_id = ?", (user_id,))
@@ -264,16 +279,19 @@ def admin_list_drivers(user_id):
     if not drivers:
         send_message(user_id, "Нет зарегистрированных водителей")
         return
+    
+    # Отправляем первое сообщение с клавиатурой
     text = "📋 Список водителей:\n\n"
     for driver_id, username, balance, is_blocked, car in drivers:
         status = "🔴 Заблокирован" if is_blocked else "🟢 Активен"
         name = username or str(driver_id)
         text += f"• {name} (ID: {driver_id})\n  🚗 {car} | Баланс: {balance:.2f} руб | {status}\n\n"
         if len(text) > 3000:
-            send_message(user_id, text)
+            send_message(user_id, text)  # Промежуточные сообщения без клавиатуры
             text = ""
-    if text:
-        send_message(user_id, text, get_admin_keyboard())
+    
+    # Последнее сообщение с клавиатурой
+    send_message(user_id, text, get_admin_keyboard())
 
 def admin_car_norms(user_id):
     cursor.execute("SELECT name, norm_highway, norm_city FROM cars")
@@ -284,18 +302,36 @@ def admin_car_norms(user_id):
     text += "\nДля изменения норм напишите:\n`/set_norm Газель трасса 13.50`"
     send_message(user_id, text, get_admin_keyboard())
 
+# Словарь для хранения состояний пользователей
 user_data = {}
 
 # ========== ОСНОВНОЙ ЦИКЛ ==========
+print("🔄 Бот начал прослушивание сообщений...")
 for event in longpoll.listen():
     if event.type == VkBotEventType.MESSAGE_NEW:
         try:
+            # Игнорируем сообщения от бота
+            if event.message.from_id < 0:
+                continue
+                
             user_id = event.message.from_id
-            text = event.message.text
+            text = event.message.text.strip()
             
-            user_info = vk.users.get(user_ids=user_id)
-            username = user_info[0].get('first_name', str(user_id))
+            # Получаем информацию о пользователе
+            try:
+                user_info = vk.users.get(user_ids=user_id)
+                username = user_info[0].get('first_name', str(user_id))
+            except:
+                username = str(user_id)
+            
             register_driver(user_id, username)
+            
+            # Проверяем, заблокирован ли пользователь
+            cursor.execute("SELECT is_blocked FROM drivers WHERE user_id = ?", (user_id,))
+            result = cursor.fetchone()
+            if result and result[0] == 1 and not is_admin(user_id):
+                send_message(user_id, "⛔ Ваш аккаунт заблокирован. Обратитесь к администратору.")
+                continue
             
             # ===== АДМИН-КОМАНДЫ =====
             if is_admin(user_id):
@@ -328,14 +364,19 @@ for event in longpoll.listen():
                         target_user = int(parts[1])
                         amount = float(parts[2])
                         
+                        # Проверяем существование пользователя
+                        cursor.execute("SELECT user_id FROM drivers WHERE user_id = ?", (target_user,))
+                        if not cursor.fetchone():
+                            register_driver(target_user, str(target_user))
+                        
                         cursor.execute("UPDATE drivers SET balance = balance + ? WHERE user_id = ?", (amount, target_user))
-                        conn.commit()
                         cursor.execute("INSERT INTO payments (user_id, amount, admin_id) VALUES (?, ?, ?)", (target_user, amount, user_id))
                         conn.commit()
                         
                         new_balance = get_balance(target_user)
                         send_message(user_id, f"✅ Баланс пополнен на {amount:.2f} руб\n💰 Новый баланс: {new_balance:.2f} руб")
                         
+                        # Уведомляем водителя
                         try:
                             send_message(target_user, f"💰 Ваш баланс пополнен на {amount:.2f} руб\nТекущий баланс: {new_balance:.2f} руб")
                         except:
@@ -345,7 +386,7 @@ for event in longpoll.listen():
                     continue
                     
                 elif text == "📢 Рассылка":
-                    send_message(user_id, "📢 Введите сообщение для рассылки:")
+                    send_message(user_id, "📢 Введите сообщение для рассылки (для отмены напишите 'отмена'):")
                     user_data[user_id] = {'state': 'admin_broadcast'}
                     continue
                     
@@ -362,12 +403,46 @@ for event in longpoll.listen():
                 elif text == "📥 Выгрузить Excel":
                     send_message(user_id, "📥 Функция выгрузки Excel в разработке")
                     continue
+                    
+                elif text == "/set_norm":
+                    send_message(user_id, "Формат: /set_norm [название авто] трасса [норма] город [норма]\nПример: /set_norm Газель трасса 12.5 город 15.5")
+                    continue
+                    
+                elif text.startswith("/set_norm"):
+                    try:
+                        parts = text.split()
+                        # /set_norm Газель трасса 12.5 город 15.5
+                        if len(parts) >= 6 and parts[2] == "трасса" and parts[4] == "город":
+                            car_name = parts[1]
+                            hw_norm = float(parts[3])
+                            city_norm = float(parts[5])
+                            
+                            cursor.execute("""
+                                UPDATE cars SET norm_highway = ?, norm_city = ? 
+                                WHERE name = ?
+                            """, (hw_norm, city_norm, car_name))
+                            conn.commit()
+                            
+                            if cursor.rowcount > 0:
+                                send_message(user_id, f"✅ Нормы для {car_name} обновлены:\nТрасса: {hw_norm:.2f} л/100км\nГород: {city_norm:.2f} л/100км")
+                            else:
+                                send_message(user_id, f"❌ Автомобиль '{car_name}' не найден")
+                        else:
+                            send_message(user_id, "❌ Неверный формат. Используйте: /set_norm Газель трасса 12.5 город 15.5")
+                    except Exception as e:
+                        send_message(user_id, f"❌ Ошибка: {e}")
+                    continue
             
-            # ===== ОБРАБОТКА СОСТОЯНИЙ =====
+            # ===== ОБРАБОТКА СОСТОЯНИЙ ПОЛЬЗОВАТЕЛЯ =====
             if user_id in user_data:
                 state = user_data[user_id].get('state')
                 
                 if state == 'admin_broadcast':
+                    if text.lower() == 'отмена':
+                        del user_data[user_id]
+                        send_message(user_id, "❌ Рассылка отменена", get_admin_keyboard())
+                        continue
+                    
                     cursor.execute("SELECT user_id FROM drivers WHERE is_blocked = 0")
                     drivers = cursor.fetchall()
                     success = 0
@@ -379,34 +454,55 @@ for event in longpoll.listen():
                         except:
                             fail += 1
                         time.sleep(0.05)
-                    send_message(user_id, f"✅ Рассылка завершена\nОтправлено: {success}\nНе доставлено: {fail}")
+                    send_message(user_id, f"✅ Рассылка завершена\nОтправлено: {success}\nНе доставлено: {fail}", get_admin_keyboard())
                     del user_data[user_id]
                     continue
                     
                 elif state == 'admin_add_driver':
+                    if text.lower() == 'отмена':
+                        del user_data[user_id]
+                        send_message(user_id, "❌ Отменено", get_admin_keyboard())
+                        continue
+                    
                     try:
                         new_user_id = int(text)
                         register_driver(new_user_id, str(new_user_id))
-                        send_message(user_id, f"✅ Водитель {new_user_id} добавлен")
+                        send_message(user_id, f"✅ Водитель {new_user_id} добавлен", get_admin_keyboard())
                     except:
                         send_message(user_id, "❌ Ошибка! Введите числовой ID")
                     del user_data[user_id]
                     continue
                     
                 elif state == 'admin_block_driver':
+                    if text.lower() == 'отмена':
+                        del user_data[user_id]
+                        send_message(user_id, "❌ Отменено", get_admin_keyboard())
+                        continue
+                    
                     try:
                         block_user_id = int(text)
                         cursor.execute("UPDATE drivers SET is_blocked = 1 WHERE user_id = ?", (block_user_id,))
                         conn.commit()
-                        send_message(user_id, f"✅ Водитель {block_user_id} заблокирован")
+                        if cursor.rowcount > 0:
+                            send_message(user_id, f"✅ Водитель {block_user_id} заблокирован", get_admin_keyboard())
+                        else:
+                            send_message(user_id, f"❌ Водитель {block_user_id} не найден", get_admin_keyboard())
                     except:
-                        send_message(user_id, "❌ Ошибка!")
+                        send_message(user_id, "❌ Ошибка! Введите числовой ID")
                     del user_data[user_id]
                     continue
                     
                 elif state == 'waiting_mileage':
+                    if text.lower() == 'отмена':
+                        del user_data[user_id]
+                        send_message(user_id, "❌ Начало смены отменено", get_main_keyboard())
+                        continue
+                    
                     try:
                         mileage = float(text.replace(',', '.'))
+                        if mileage < 0:
+                            send_message(user_id, "❌ Пробег не может быть отрицательным!")
+                            continue
                         user_data[user_id]['start_mileage'] = mileage
                         user_data[user_id]['state'] = 'waiting_fuel'
                         send_message(user_id, "⛽ Введите количество топлива в баке (литры):")
@@ -415,10 +511,22 @@ for event in longpoll.listen():
                     continue
                     
                 elif state == 'waiting_fuel':
+                    if text.lower() == 'отмена':
+                        del user_data[user_id]
+                        send_message(user_id, "❌ Начало смены отменено", get_main_keyboard())
+                        continue
+                    
                     try:
                         fuel = float(text.replace(',', '.'))
+                        if fuel < 0:
+                            send_message(user_id, "❌ Количество топлива не может быть отрицательным!")
+                            continue
+                        
                         car_name = get_driver_car(user_id)
                         start_mileage = user_data[user_id]['start_mileage']
+                        
+                        # Закрываем все предыдущие активные сессии
+                        cursor.execute("UPDATE sessions SET is_active = 0, ended_at = CURRENT_TIMESTAMP WHERE user_id = ? AND is_active = 1", (user_id,))
                         
                         cursor.execute("""
                             INSERT INTO sessions (user_id, car_name, start_mileage, start_fuel, is_active)
@@ -435,8 +543,16 @@ for event in longpoll.listen():
                     continue
                     
                 elif state == 'waiting_highway':
+                    if text.lower() == 'отмена':
+                        del user_data[user_id]
+                        send_message(user_id, "❌ Добавление поездки отменено", get_main_keyboard())
+                        continue
+                    
                     try:
                         highway = float(text.replace(',', '.'))
+                        if highway < 0:
+                            send_message(user_id, "❌ Километраж не может быть отрицательным!")
+                            continue
                         user_data[user_id]['highway'] = highway
                         user_data[user_id]['state'] = 'waiting_city'
                         send_message(user_id, "🏙 Введите километраж по городу:")
@@ -445,8 +561,17 @@ for event in longpoll.listen():
                     continue
                     
                 elif state == 'waiting_city':
+                    if text.lower() == 'отмена':
+                        del user_data[user_id]
+                        send_message(user_id, "❌ Добавление поездки отменено", get_main_keyboard())
+                        continue
+                    
                     try:
                         city = float(text.replace(',', '.'))
+                        if city < 0:
+                            send_message(user_id, "❌ Километраж не может быть отрицательным!")
+                            continue
+                        
                         session_id = user_data[user_id]['session_id']
                         highway = user_data[user_id]['highway']
                         
@@ -462,8 +587,17 @@ for event in longpoll.listen():
                     continue
                     
                 elif state == 'waiting_refuel':
+                    if text.lower() == 'отмена':
+                        del user_data[user_id]
+                        send_message(user_id, "❌ Заправка отменена", get_main_keyboard())
+                        continue
+                    
                     try:
                         liters = float(text.replace(',', '.'))
+                        if liters <= 0:
+                            send_message(user_id, "❌ Количество топлива должно быть положительным!")
+                            continue
+                        
                         session_id = user_data[user_id]['session_id']
                         
                         cursor.execute("UPDATE sessions SET total_refueled = total_refueled + ? WHERE id = ?", (liters, session_id))
@@ -482,169 +616,116 @@ for event in longpoll.listen():
                         send_message(user_id, "❌ Выбор отменен", get_main_keyboard())
                         continue
                     
-                    try:
-                        car_name = text
-                        cursor.execute("SELECT name, norm_highway, norm_city FROM cars WHERE name = ?", (car_name,))
-                        car = cursor.fetchone()
-                        
-                        if car:
-                            set_driver_car(user_id, car_name)
-                            send_message(
-                                user_id, 
-                                f"✅ Выбран автомобиль: {car_name}\n"
-                                f"📊 Нормы расхода: трасса {car[1]:.2f} л/100км, город {car[2]:.2f} л/100км",
-                                get_main_keyboard()
-                            )
-                        else:
-                            send_message(user_id, "❌ Автомобиль не найден. Выберите из списка.")
-                        
+                    # Проверяем, существует ли такой автомобиль
+                    cursor.execute("SELECT name FROM cars WHERE name = ?", (text,))
+                    car = cursor.fetchone()
+                    if car:
+                        car_name = car[0]
+                        set_driver_car(user_id, car_name)
+                        norms = get_car_norms(car_name)
                         del user_data[user_id]
-                    except Exception as e:
-                        print(f"Ошибка: {e}")
-                        send_message(user_id, "⚠️ Ошибка при выборе автомобиля")
-                        del user_data[user_id]
+                        send_message(user_id, 
+                            f"✅ Выбран автомобиль: {car_name}\n"
+                            f"Нормы расхода: трасса {norms[0]:.2f} л/100км, город {norms[1]:.2f} л/100км",
+                            get_main_keyboard()
+                        )
+                    else:
+                        send_message(user_id, "❌ Такого автомобиля нет в списке. Выберите из предложенных вариантов или нажмите 'Отмена'", get_car_selection_keyboard())
                     continue
             
-            # ===== ОСНОВНЫЕ КОМАНДЫ =====
-            if text.lower() == "/start":
-                if get_active_session(user_id):
-                    send_message(user_id, "У вас уже есть активная смена!", get_main_keyboard())
-                    session_id = get_active_session(user_id)
-                    show_stats(user_id, session_id)
-                    continue
-                
-                balance = get_balance(user_id)
-                if balance < PRICE_PER_SHIFT:
-                    send_message(user_id, f"⚠️ Недостаточно средств. Баланс: {balance:.2f} руб\nСтоимость смены: {PRICE_PER_SHIFT} руб", get_main_keyboard())
-                    continue
-                
-                send_message(user_id, "🚛 Начало смены.\nВведите пробег на одометре (км):")
-                user_data[user_id] = {'state': 'waiting_mileage'}
-                continue
-                
-            elif text == "💰 Баланс" or text.lower() == "/balance":
-                show_balance(user_id)
-                continue
-                
+            # ===== ОБЫЧНЫЕ КОМАНДЫ =====
             elif text == "🚗 Выбрать авто":
-                cursor.execute("SELECT name FROM cars")
-                cars = cursor.fetchall()
-                
-                if not cars:
-                    send_message(user_id, "❌ Нет доступных автомобилей")
-                    continue
-                
-                keyboard = VkKeyboard(one_time=False)
-                for car in cars:
-                    keyboard.add_button(car[0], color=VkKeyboardColor.PRIMARY)
-                    keyboard.add_line()
-                keyboard.add_button("❌ Отмена", color=VkKeyboardColor.NEGATIVE)
-                
-                current_car = get_driver_car(user_id)
-                send_message(
-                    user_id, 
-                    f"🚗 Выберите автомобиль:\nТекущий: {current_car}",
-                    keyboard
-                )
+                send_message(user_id, "🚗 Выберите автомобиль:", get_car_selection_keyboard())
                 user_data[user_id] = {'state': 'selecting_car'}
+                continue
+                
+            elif text == "💰 Баланс":
+                show_balance(user_id)
                 continue
                 
             elif text == "➕ Поездка":
                 session_id = get_active_session(user_id)
                 if not session_id:
-                    send_message(user_id, "❌ Нет активной смены. Напишите /start")
-                    continue
-                user_data[user_id] = {'state': 'waiting_highway', 'session_id': session_id}
-                send_message(user_id, "🛣 Сколько километров по ТРАССЕ? (число)")
+                    # Начинаем новую смену, если нет активной
+                    send_message(user_id, "🚚 Для начала введите начальный пробег (км):")
+                    user_data[user_id] = {'state': 'waiting_mileage'}
+                else:
+                    send_message(user_id, "🛣 Введите километраж по трассе:")
+                    user_data[user_id] = {'state': 'waiting_highway', 'session_id': session_id}
                 continue
                 
             elif text == "⛽ Заправился":
                 session_id = get_active_session(user_id)
                 if not session_id:
-                    send_message(user_id, "❌ Нет активной смены. Напишите /start")
-                    continue
-                user_data[user_id] = {'state': 'waiting_refuel', 'session_id': session_id}
-                send_message(user_id, "⛽ Сколько литров заправили?")
+                    send_message(user_id, "❌ Нет активной смены. Начните новую смену (кнопка '➕ Поездка')")
+                else:
+                    send_message(user_id, "⛽ Введите количество заправленного топлива (литры):")
+                    user_data[user_id] = {'state': 'waiting_refuel', 'session_id': session_id}
                 continue
                 
             elif text == "↩️ Отменить последнюю":
                 session_id = get_active_session(user_id)
                 if not session_id:
                     send_message(user_id, "❌ Нет активной смены")
-                    continue
-                cursor.execute("SELECT id, highway, city FROM trips WHERE session_id = ? ORDER BY created_at DESC LIMIT 1", (session_id,))
-                last = cursor.fetchone()
-                if not last:
-                    send_message(user_id, "❌ Нет поездок для отмены")
-                    continue
-                trip_id, highway, city = last
-                cursor.execute("UPDATE sessions SET total_highway = total_highway - ?, total_city = total_city - ? WHERE id = ?", (highway, city, session_id))
-                cursor.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
-                conn.commit()
-                send_message(user_id, f"❌ Отменена последняя поездка (трасса {highway:.2f} км, город {city:.2f} км)")
-                show_stats(user_id, session_id)
+                else:
+                    cursor.execute("SELECT id FROM trips WHERE session_id = ? ORDER BY id DESC LIMIT 1", (session_id,))
+                    trip = cursor.fetchone()
+                    if trip:
+                        trip_id = trip[0]
+                        cursor.execute("SELECT highway, city FROM trips WHERE id = ?", (trip_id,))
+                        hw, city = cursor.fetchone()
+                        cursor.execute("DELETE FROM trips WHERE id = ?", (trip_id,))
+                        cursor.execute("UPDATE sessions SET total_highway = total_highway - ?, total_city = total_city - ? WHERE id = ?", (hw, city, session_id))
+                        conn.commit()
+                        send_message(user_id, f"✅ Последняя поездка отменена (трасса {hw:.2f} км, город {city:.2f} км)")
+                        show_stats(user_id, session_id)
+                    else:
+                        send_message(user_id, "❌ Нет поездок для отмены")
                 continue
                 
             elif text == "✅ Закончить смену":
                 session_id = get_active_session(user_id)
                 if not session_id:
                     send_message(user_id, "❌ Нет активной смены")
-                    continue
-                
-                s = get_session_summary(session_id)
-                if not s:
-                    continue
-                
-                balance = get_balance(user_id)
-                if balance < PRICE_PER_SHIFT:
-                    send_message(user_id, f"❌ Недостаточно средств. Баланс: {balance:.2f} руб\nСтоимость смены: {PRICE_PER_SHIFT} руб")
-                    cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-                    cursor.execute("DELETE FROM trips WHERE session_id = ?", (session_id,))
-                    conn.commit()
-                    continue
-                
-                end_mileage = s["start_mileage"] + s["total_km"]
-                update_balance(user_id, -PRICE_PER_SHIFT)
-                cursor.execute("UPDATE sessions SET is_active = 0, was_paid = 1, ended_at = CURRENT_TIMESTAMP WHERE id = ?", (session_id,))
-                conn.commit()
-                
-                new_balance = get_balance(user_id)
-                report = f"""
-📊 ОТЧЁТ ЗА СМЕНУ
-
-🚗 Автомобиль: {s['car_name']}
-📊 Нормы расхода: трасса {s['norm_hw']:.2f} л/100км, город {s['norm_city']:.2f} л/100км
-
-📌 Километраж:
-- По трассе: {s['total_hw']:.2f} км
-- По городу: {s['total_city']:.2f} км
-- Всего: {s['total_km']:.2f} км
-- Пробег: {s['start_mileage']:.0f} → {end_mileage:.0f}
-
-⛽ Расход топлива (по норме):
-- Итого потрачено: {s['fuel_used']:.2f} л
-
-📥 Было топлива:
-- На начало: {s['start_fuel']:.2f} л
-- Заправлено: {s['total_refueled']:.2f} л
-
-📤 Остаток в баке: {s['remaining']:.2f} л
-
-💰 Оплата:
-- Списано: {PRICE_PER_SHIFT} руб
-- Остаток: {new_balance:.2f} руб
-
-✅ Смена завершена. Для новой смены нажмите /start
-"""
-                send_message(user_id, report, get_main_keyboard())
+                else:
+                    s = get_session_summary(session_id)
+                    if s:
+                        balance_before = get_balance(user_id)
+                        update_balance(user_id, -PRICE_PER_SHIFT)
+                        balance_after = get_balance(user_id)
+                        
+                        cursor.execute("UPDATE sessions SET is_active = 0, was_paid = 1, ended_at = CURRENT_TIMESTAMP WHERE id = ?", (session_id,))
+                        conn.commit()
+                        
+                        message = (
+                            f"✅ Смена завершена!\n\n"
+                            f"📊 ИТОГИ СМЕНЫ:\n"
+                            f"🚗 Авто: {s['car_name']}\n"
+                            f"🛣 Общий пробег: {s['total_km']:.2f} км\n"
+                            f"   - Трасса: {s['total_hw']:.2f} км\n"
+                            f"   - Город: {s['total_city']:.2f} км\n"
+                            f"⛽ Начало смены: {s['start_fuel']:.2f} л\n"
+                            f"⛽ Заправлено: {s['total_refueled']:.2f} л\n"
+                            f"📉 Расход по норме: {s['fuel_used']:.2f} л\n"
+                            f"💧 Остаток: {s['remaining']:.2f} л\n\n"
+                            f"💰 Списано за смену: {PRICE_PER_SHIFT} руб\n"
+                            f"💰 Баланс: {balance_before:.2f} → {balance_after:.2f} руб"
+                        )
+                        send_message(user_id, message, get_main_keyboard())
+                    else:
+                        send_message(user_id, "❌ Ошибка при завершении смены")
                 continue
                 
             else:
-                send_message(user_id, "❓ Неизвестная команда\n/start - начать смену\n/balance - баланс\n/help - помощь", get_main_keyboard())
+                # Неизвестная команда
+                if not is_admin(user_id):
+                    send_message(user_id, "Используйте кнопки меню для работы с ботом", get_main_keyboard())
+                else:
+                    send_message(user_id, "Используйте кнопки меню или команду /admin", get_admin_keyboard())
                 
         except Exception as e:
-            print(f"Ошибка: {e}")
+            print(f"❌ Ошибка обработки сообщения: {e}")
             try:
-                send_message(user_id, "⚠️ Произошла ошибка. Попробуйте еще раз.")
+                send_message(user_id, "❌ Произошла ошибка. Попробуйте еще раз или обратитесь к администратору.")
             except:
                 pass
