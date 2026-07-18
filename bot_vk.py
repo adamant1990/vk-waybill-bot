@@ -36,7 +36,7 @@ lock_fp = check_single_instance()
 # ========== НАСТРОЙКИ ==========
 VK_TOKEN = "vk1.a.iKPy742qB3R9M6tWvmRgk0BuyR2JO36Lp4UZkM0pVH-KmBbL5OLQoYgxTjommXbfDtsfHEIh6tWltbqydzkiefVFD-jy8QYSO6Y1Si7VpjhDziFcHEHRazAA1hsLg8ACIpQyzdIPlNouWhPEYQZbeV4_CBagFwGAZ5MprVRBmfowvHb9Ma8_MgvgeacK42IbO8c4uyJhXA2QirX-cGrG5A"
 VK_GROUP_ID = 240344015
-ADMIN_IDS = [1121983645]
+ADMIN_IDS = [75074039]
 PRICE_PER_SHIFT = 5
 START_BALANCE = 500  # Начальный баланс для новых водителей
 
@@ -166,6 +166,8 @@ def get_admin_keyboard():
     keyboard.add_line()
     keyboard.add_button("📢 Рассылка", color=VkKeyboardColor.PRIMARY)
     keyboard.add_button("📋 Список водителей", color=VkKeyboardColor.PRIMARY)
+    keyboard.add_line()
+    keyboard.add_button("🔙 Выйти из админки", color=VkKeyboardColor.NEGATIVE)
     return keyboard
 
 def get_car_selection_keyboard():
@@ -400,6 +402,10 @@ try:
                         if is_admin(user_id):
                             if text == "/admin":
                                 send_message(user_id, "👨‍💼 Админ-панель", get_admin_keyboard())
+                                continue
+                            
+                            elif text == "🔙 Выйти из админки":
+                                send_message(user_id, "👋 Вы вышли из админ-панели", get_main_keyboard())
                                 continue
                                 
                             elif text == "📊 Статистика":
@@ -816,7 +822,7 @@ try:
                             if not is_admin(user_id):
                                 send_message(user_id, "Используйте кнопки меню для работы с ботом", get_main_keyboard())
                             else:
-                                send_message(user_id, "Используйте кнопки меню или команду /admin", get_admin_keyboard())
+                                send_message(user_id, "Используйте кнопки меню или команду /admin для входа в админ-панель", get_main_keyboard())
                     
                     except Exception as e:
                         print(f"❌ Ошибка обработки сообщения: {e}")
