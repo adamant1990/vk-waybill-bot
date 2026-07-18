@@ -9,7 +9,7 @@ from vk_api.utils import get_random_id
 # ========== НАСТРОЙКИ ==========
 VK_TOKEN = "vk1.a.iKPy742qB3R9M6tWvmRgk0BuyR2JO36Lp4UZkM0pVH-KmBbL5OLQoYgxTjommXbfDtsfHEIh6tWltbqydzkiefVFD-jy8QYSO6Y1Si7VpjhDziFcHEHRazAA1hsLg8ACIpQyzdIPlNouWhPEYQZbeV4_CBagFwGAZ5MprVRBmfowvHb9Ma8_MgvgeacK42IbO8c4uyJhXA2QirX-cGrG5A"
 VK_GROUP_ID = 240344015
-ADMIN_IDS = [1121983645]
+ADMIN_IDS = [75074039]
 PRICE_PER_SHIFT = 5
 
 # ========== БАЗА ДАННЫХ ==========
@@ -475,6 +475,35 @@ for event in longpoll.listen():
                     except:
                         send_message(user_id, "❌ Введите число!")
                     continue
+                    
+                elif state == 'selecting_car':
+                    if text == "❌ Отмена":
+                        del user_data[user_id]
+                        send_message(user_id, "❌ Выбор отменен", get_main_keyboard())
+                        continue
+                    
+                    try:
+                        car_name = text
+                        cursor.execute("SELECT name, norm_highway, norm_city FROM cars WHERE name = ?", (car_name,))
+                        car = cursor.fetchone()
+                        
+                        if car:
+                            set_driver_car(user_id, car_name)
+                            send_message(
+                                user_id, 
+                                f"✅ Выбран автомобиль: {car_name}\n"
+                                f"📊 Нормы расхода: трасса {car[1]:.2f} л/100км, город {car[2]:.2f} л/100км",
+                                get_main_keyboard()
+                            )
+                        else:
+                            send_message(user_id, "❌ Автомобиль не найден. Выберите из списка.")
+                        
+                        del user_data[user_id]
+                    except Exception as e:
+                        print(f"Ошибка: {e}")
+                        send_message(user_id, "⚠️ Ошибка при выборе автомобиля")
+                        del user_data[user_id]
+                    continue
             
             # ===== ОСНОВНЫЕ КОМАНДЫ =====
             if text.lower() == "/start":
@@ -500,11 +529,23 @@ for event in longpoll.listen():
             elif text == "🚗 Выбрать авто":
                 cursor.execute("SELECT name FROM cars")
                 cars = cursor.fetchall()
+                
+                if not cars:
+                    send_message(user_id, "❌ Нет доступных автомобилей")
+                    continue
+                
                 keyboard = VkKeyboard(one_time=False)
                 for car in cars:
                     keyboard.add_button(car[0], color=VkKeyboardColor.PRIMARY)
                     keyboard.add_line()
-                send_message(user_id, "🚗 Выберите автомобиль:", keyboard)
+                keyboard.add_button("❌ Отмена", color=VkKeyboardColor.NEGATIVE)
+                
+                current_car = get_driver_car(user_id)
+                send_message(
+                    user_id, 
+                    f"🚗 Выберите автомобиль:\nТекущий: {current_car}",
+                    keyboard
+                )
                 user_data[user_id] = {'state': 'selecting_car'}
                 continue
                 
@@ -596,14 +637,6 @@ for event in longpoll.listen():
 ✅ Смена завершена. Для новой смены нажмите /start
 """
                 send_message(user_id, report, get_main_keyboard())
-                continue
-                
-            elif user_id in user_data and user_data[user_id].get('state') == 'selecting_car':
-                car_name = text
-                set_driver_car(user_id, car_name)
-                norms = get_car_norms(car_name)
-                send_message(user_id, f"✅ Выбран автомобиль: {car_name}\n📊 Нормы расхода: трасса {norms[0]:.2f} л/100км, город {norms[1]:.2f} л/100км", get_main_keyboard())
-                del user_data[user_id]
                 continue
                 
             else:
