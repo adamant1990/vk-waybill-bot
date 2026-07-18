@@ -377,12 +377,8 @@ for event in longpoll.listen():
                     processed = True
                     continue
             
-            # ===== ЕСЛИ УЖЕ ОБРАБОТАНО - ПРОПУСКАЕМ =====
-            if processed:
-                continue
-            
             # ===== ОБРАБОТКА СОСТОЯНИЙ =====
-            if user_id in user_data:
+            if user_id in user_data and not processed:
                 state = user_data[user_id].get('state')
                 
                 if state == 'admin_broadcast':
@@ -399,6 +395,7 @@ for event in longpoll.listen():
                         time.sleep(0.05)
                     send_message(user_id, f"✅ Рассылка завершена\nОтправлено: {success}\nНе доставлено: {fail}")
                     del user_data[user_id]
+                    processed = True
                     continue
                     
                 elif state == 'admin_add_driver':
@@ -409,6 +406,7 @@ for event in longpoll.listen():
                     except:
                         send_message(user_id, "❌ Ошибка! Введите числовой ID")
                     del user_data[user_id]
+                    processed = True
                     continue
                     
                 elif state == 'admin_block_driver':
@@ -420,6 +418,7 @@ for event in longpoll.listen():
                     except:
                         send_message(user_id, "❌ Ошибка!")
                     del user_data[user_id]
+                    processed = True
                     continue
                     
                 elif state == 'waiting_start_confirm':
@@ -429,6 +428,7 @@ for event in longpoll.listen():
                     else:
                         del user_data[user_id]
                         send_message(user_id, "❌ Отменено.", get_main_keyboard())
+                    processed = True
                     continue
                     
                 elif state == 'waiting_mileage':
@@ -439,6 +439,7 @@ for event in longpoll.listen():
                         send_message(user_id, "⛽ Введите количество топлива в баке (литры):")
                     except:
                         send_message(user_id, "❌ Введите число!")
+                    processed = True
                     continue
                     
                 elif state == 'waiting_fuel':
@@ -459,6 +460,7 @@ for event in longpoll.listen():
                         show_stats(user_id, session_id)
                     except:
                         send_message(user_id, "❌ Введите число!")
+                    processed = True
                     continue
                     
                 elif state == 'waiting_highway':
@@ -469,6 +471,7 @@ for event in longpoll.listen():
                         send_message(user_id, "🏙 Введите километраж по городу:")
                     except:
                         send_message(user_id, "❌ Введите число!")
+                    processed = True
                     continue
                     
                 elif state == 'waiting_city':
@@ -486,6 +489,7 @@ for event in longpoll.listen():
                         show_stats(user_id, session_id)
                     except:
                         send_message(user_id, "❌ Ошибка!")
+                    processed = True
                     continue
                     
                 elif state == 'waiting_refuel':
@@ -501,12 +505,14 @@ for event in longpoll.listen():
                         show_stats(user_id, session_id)
                     except:
                         send_message(user_id, "❌ Введите число!")
+                    processed = True
                     continue
                     
                 elif state == 'selecting_car':
                     if text == "❌ Отмена":
                         del user_data[user_id]
                         send_message(user_id, "❌ Выбор отменен", get_main_keyboard())
+                        processed = True
                         continue
                     
                     try:
@@ -530,6 +536,7 @@ for event in longpoll.listen():
                         print(f"Ошибка: {e}")
                         send_message(user_id, "⚠️ Ошибка при выборе автомобиля")
                         del user_data[user_id]
+                    processed = True
                     continue
             
             # ===== ЕСЛИ УЖЕ ОБРАБОТАНО - ПРОПУСКАЕМ =====
