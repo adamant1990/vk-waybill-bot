@@ -11,10 +11,10 @@ from io import BytesIO
 import re
 
 # ========== НАСТРОЙКИ ==========
-VK_TOKEN = "YOUR_VK_GROUP_TOKEN"  # Токен группы ВК
-VK_GROUP_ID = 123456789  # ID вашей группы
+VK_TOKEN = "vk1.a.iKPy742qB3R9M6tWvmRgk0BuyR2JO36Lp4UZkM0pVH-KmBbL5OLQoYgxTjommXbfDtsfHEIh6tWltbqydzkiefVFD-jy8QYSO6Y1Si7VpjhDziFcHEHRazAA1hsLg8ACIpQyzdIPlNouWhPEYQZbeV4_CBagFwGAZ5MprVRBmfowvHb9Ma8_MgvgeacK42IbO8c4uyJhXA2QirX-cGrG5A"  # Токен группы ВК
+VK_GROUP_ID = 240344015  # ID вашей группы
 PRICE_PER_SHIFT = 5
-ADMIN_IDS = [123456789]  # ID пользователей ВК (числовые)
+ADMIN_IDS = [75074039]  # ID пользователей ВК (числовые)
 
 # ========== БАЗА ДАННЫХ ==========
 conn = sqlite3.connect("waybills.db", check_same_thread=False)
