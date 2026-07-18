@@ -9,7 +9,7 @@ from vk_api.utils import get_random_id
 # ========== НАСТРОЙКИ ==========
 VK_TOKEN = "vk1.a.iKPy742qB3R9M6tWvmRgk0BuyR2JO36Lp4UZkM0pVH-KmBbL5OLQoYgxTjommXbfDtsfHEIh6tWltbqydzkiefVFD-jy8QYSO6Y1Si7VpjhDziFcHEHRazAA1hsLg8ACIpQyzdIPlNouWhPEYQZbeV4_CBagFwGAZ5MprVRBmfowvHb9Ma8_MgvgeacK42IbO8c4uyJhXA2QirX-cGrG5A"
 VK_GROUP_ID = 240344015
-ADMIN_IDS = [75074039]
+ADMIN_IDS = [1121983645]
 PRICE_PER_SHIFT = 5
 
 # ========== БАЗА ДАННЫХ ==========
@@ -160,7 +160,7 @@ def update_balance(user_id, delta):
 def register_driver(user_id, username):
     cursor.execute("""
         INSERT OR IGNORE INTO drivers (user_id, username, balance, is_blocked, rate_per_shift, selected_car)
-        VALUES (?, ?, 0, 0, 5, 'Газель')
+        VALUES (?, ?, 500, 0, 5, 'Газель')
     """, (user_id, username))
     conn.commit()
 
@@ -297,26 +297,34 @@ for event in longpoll.listen():
             username = user_info[0].get('first_name', str(user_id))
             register_driver(user_id, username)
             
+            # ===== ФЛАГ: сообщение уже обработано =====
+            processed = False
+            
             # ===== АДМИН-КОМАНДЫ =====
-            if is_admin(user_id):
+            if is_admin(user_id) and not processed:
                 if text == "/admin":
                     send_message(user_id, "👨‍💼 Админ-панель", get_admin_keyboard())
+                    processed = True
                     continue
                     
                 elif text == "📊 Статистика":
                     admin_stats(user_id)
+                    processed = True
                     continue
                     
                 elif text == "📋 Список водителей":
                     admin_list_drivers(user_id)
+                    processed = True
                     continue
                     
                 elif text == "🚗 Нормы расхода":
                     admin_car_norms(user_id)
+                    processed = True
                     continue
                     
                 elif text == "💰 Пополнить баланс":
                     send_message(user_id, "💰 Введите ID пользователя и сумму:\nФормат: /topup ID СУММА\nПример: /topup 75074039 100")
+                    processed = True
                     continue
                     
                 elif text.startswith("/topup"):
@@ -324,6 +332,7 @@ for event in longpoll.listen():
                         parts = text.split()
                         if len(parts) != 3:
                             send_message(user_id, "❌ Формат: /topup ID СУММА")
+                            processed = True
                             continue
                         target_user = int(parts[1])
                         amount = float(parts[2])
@@ -342,26 +351,35 @@ for event in longpoll.listen():
                             pass
                     except Exception as e:
                         send_message(user_id, f"❌ Ошибка: {e}")
+                    processed = True
                     continue
                     
                 elif text == "📢 Рассылка":
                     send_message(user_id, "📢 Введите сообщение для рассылки:")
                     user_data[user_id] = {'state': 'admin_broadcast'}
+                    processed = True
                     continue
                     
                 elif text == "➕ Добавить водителя":
                     send_message(user_id, "Введите ID пользователя для добавления:")
                     user_data[user_id] = {'state': 'admin_add_driver'}
+                    processed = True
                     continue
                     
                 elif text == "❌ Заблокировать водителя":
                     send_message(user_id, "Введите ID пользователя для блокировки:")
                     user_data[user_id] = {'state': 'admin_block_driver'}
+                    processed = True
                     continue
                     
                 elif text == "📥 Выгрузить Excel":
                     send_message(user_id, "📥 Функция выгрузки Excel в разработке")
+                    processed = True
                     continue
+            
+            # ===== ЕСЛИ УЖЕ ОБРАБОТАНО - ПРОПУСКАЕМ =====
+            if processed:
+                continue
             
             # ===== ОБРАБОТКА СОСТОЯНИЙ =====
             if user_id in user_data:
@@ -402,6 +420,15 @@ for event in longpoll.listen():
                     except:
                         send_message(user_id, "❌ Ошибка!")
                     del user_data[user_id]
+                    continue
+                    
+                elif state == 'waiting_start_confirm':
+                    if text == "🚑 Начать смену":
+                        send_message(user_id, "🚛 Начало смены.\nВведите пробег на одометре (км):")
+                        user_data[user_id] = {'state': 'waiting_mileage'}
+                    else:
+                        del user_data[user_id]
+                        send_message(user_id, "❌ Отменено.", get_main_keyboard())
                     continue
                     
                 elif state == 'waiting_mileage':
@@ -505,6 +532,10 @@ for event in longpoll.listen():
                         del user_data[user_id]
                     continue
             
+            # ===== ЕСЛИ УЖЕ ОБРАБОТАНО - ПРОПУСКАЕМ =====
+            if processed:
+                continue
+            
             # ===== ОСНОВНЫЕ КОМАНДЫ =====
             if text.lower() == "/start":
                 if get_active_session(user_id):
@@ -518,8 +549,14 @@ for event in longpoll.listen():
                     send_message(user_id, f"⚠️ Недостаточно средств. Баланс: {balance:.2f} руб\nСтоимость смены: {PRICE_PER_SHIFT} руб", get_main_keyboard())
                     continue
                 
-                send_message(user_id, "🚛 Начало смены.\nВведите пробег на одометре (км):")
-                user_data[user_id] = {'state': 'waiting_mileage'}
+                keyboard = VkKeyboard(one_time=True)
+                keyboard.add_button("🚑 Начать смену", color=VkKeyboardColor.POSITIVE)
+                send_message(
+                    user_id,
+                    f"✅ Готовы начать смену?\n💰 Баланс: {balance:.2f} руб",
+                    keyboard
+                )
+                user_data[user_id] = {'state': 'waiting_start_confirm'}
                 continue
                 
             elif text == "💰 Баланс" or text.lower() == "/balance":
@@ -552,7 +589,18 @@ for event in longpoll.listen():
             elif text == "➕ Поездка":
                 session_id = get_active_session(user_id)
                 if not session_id:
-                    send_message(user_id, "❌ Нет активной смены. Напишите /start")
+                    balance = get_balance(user_id)
+                    if balance >= PRICE_PER_SHIFT:
+                        keyboard = VkKeyboard(one_time=True)
+                        keyboard.add_button("🚑 Начать смену", color=VkKeyboardColor.POSITIVE)
+                        send_message(
+                            user_id,
+                            "❌ Нет активной смены.\n\nНажмите кнопку, чтобы начать:",
+                            keyboard
+                        )
+                        user_data[user_id] = {'state': 'waiting_start_confirm'}
+                    else:
+                        send_message(user_id, f"❌ Нет активной смены и недостаточно средств. Баланс: {balance:.2f} руб")
                     continue
                 user_data[user_id] = {'state': 'waiting_highway', 'session_id': session_id}
                 send_message(user_id, "🛣 Сколько километров по ТРАССЕ? (число)")
@@ -561,7 +609,18 @@ for event in longpoll.listen():
             elif text == "⛽ Заправился":
                 session_id = get_active_session(user_id)
                 if not session_id:
-                    send_message(user_id, "❌ Нет активной смены. Напишите /start")
+                    balance = get_balance(user_id)
+                    if balance >= PRICE_PER_SHIFT:
+                        keyboard = VkKeyboard(one_time=True)
+                        keyboard.add_button("🚑 Начать смену", color=VkKeyboardColor.POSITIVE)
+                        send_message(
+                            user_id,
+                            "❌ Нет активной смены.\n\nНажмите кнопку, чтобы начать:",
+                            keyboard
+                        )
+                        user_data[user_id] = {'state': 'waiting_start_confirm'}
+                    else:
+                        send_message(user_id, f"❌ Нет активной смены и недостаточно средств. Баланс: {balance:.2f} руб")
                     continue
                 user_data[user_id] = {'state': 'waiting_refuel', 'session_id': session_id}
                 send_message(user_id, "⛽ Сколько литров заправили?")
@@ -640,7 +699,23 @@ for event in longpoll.listen():
                 continue
                 
             else:
-                send_message(user_id, "❓ Неизвестная команда\n/start - начать смену\n/balance - баланс\n/help - помощь", get_main_keyboard())
+                # Если нет активной смены - предлагаем начать
+                if not get_active_session(user_id):
+                    balance = get_balance(user_id)
+                    if balance >= PRICE_PER_SHIFT:
+                        keyboard = VkKeyboard(one_time=True)
+                        keyboard.add_button("🚑 Начать смену", color=VkKeyboardColor.POSITIVE)
+                        send_message(
+                            user_id,
+                            f"⚠️ У вас нет активной смены.\n💰 Баланс: {balance:.2f} руб\n\nНажмите кнопку, чтобы начать:",
+                            keyboard
+                        )
+                        user_data[user_id] = {'state': 'waiting_start_confirm'}
+                    else:
+                        send_message(user_id, f"⚠️ Недостаточно средств. Баланс: {balance:.2f} руб", get_main_keyboard())
+                else:
+                    send_message(user_id, "❓ Неизвестная команда\n/start - начать смену\n/balance - баланс", get_main_keyboard())
+                continue
                 
         except Exception as e:
             print(f"Ошибка: {e}")
