@@ -398,106 +398,7 @@ try:
                             send_message(user_id, "⛔ Ваш аккаунт заблокирован. Обратитесь к администратору.")
                             continue
                         
-                        # ===== АДМИН-КОМАНДЫ =====
-                        if is_admin(user_id):
-                            if text == "/admin":
-                                send_message(user_id, "👨‍💼 Админ-панель", get_admin_keyboard())
-                                continue
-                            
-                            elif text == "🔙 Выйти из админки":
-                                send_message(user_id, "👋 Вы вышли из админ-панели", get_main_keyboard())
-                                continue
-                                
-                            elif text == "📊 Статистика":
-                                admin_stats(user_id)
-                                continue
-                                
-                            elif text == "📋 Список водителей":
-                                admin_list_drivers(user_id)
-                                continue
-                                
-                            elif text == "🚗 Нормы расхода":
-                                admin_car_norms(user_id)
-                                continue
-                                
-                            elif text == "💰 Пополнить баланс":
-                                send_message(user_id, "💰 Введите ID пользователя и сумму:\nФормат: /topup ID СУММА\nПример: /topup 75074039 100")
-                                continue
-                                
-                            elif text.startswith("/topup"):
-                                try:
-                                    parts = text.split()
-                                    if len(parts) != 3:
-                                        send_message(user_id, "❌ Формат: /topup ID СУММА")
-                                        continue
-                                    target_user = int(parts[1])
-                                    amount = float(parts[2])
-                                    
-                                    cursor.execute("SELECT user_id FROM drivers WHERE user_id = ?", (target_user,))
-                                    if not cursor.fetchone():
-                                        register_driver(target_user, str(target_user))
-                                        cursor.execute("UPDATE drivers SET balance = balance + ? WHERE user_id = ?", (amount, target_user))
-                                    else:
-                                        cursor.execute("UPDATE drivers SET balance = balance + ? WHERE user_id = ?", (amount, target_user))
-                                    
-                                    cursor.execute("INSERT INTO payments (user_id, amount, admin_id) VALUES (?, ?, ?)", (target_user, amount, user_id))
-                                    conn.commit()
-                                    
-                                    new_balance = get_balance(target_user)
-                                    send_message(user_id, f"✅ Баланс пополнен на {amount:.2f} руб\n💰 Новый баланс: {new_balance:.2f} руб")
-                                    
-                                    try:
-                                        send_message(target_user, f"💰 Ваш баланс пополнен на {amount:.2f} руб\nТекущий баланс: {new_balance:.2f} руб")
-                                    except:
-                                        pass
-                                except Exception as e:
-                                    send_message(user_id, f"❌ Ошибка: {e}")
-                                continue
-                                
-                            elif text == "📢 Рассылка":
-                                send_message(user_id, "📢 Введите сообщение для рассылки (для отмены напишите 'отмена'):")
-                                user_data[user_id] = {'state': 'admin_broadcast'}
-                                continue
-                                
-                            elif text == "➕ Добавить водителя":
-                                send_message(user_id, "Введите ID пользователя для добавления:")
-                                user_data[user_id] = {'state': 'admin_add_driver'}
-                                continue
-                                
-                            elif text == "❌ Заблокировать водителя":
-                                send_message(user_id, "Введите ID пользователя для блокировки:")
-                                user_data[user_id] = {'state': 'admin_block_driver'}
-                                continue
-                                
-                            elif text == "📥 Выгрузить Excel":
-                                send_message(user_id, "📥 Функция выгрузки Excel в разработке")
-                                continue
-                                
-                            elif text.startswith("/set_norm"):
-                                try:
-                                    parts = text.split()
-                                    if len(parts) >= 6 and parts[2] == "трасса" and parts[4] == "город":
-                                        car_name = parts[1]
-                                        hw_norm = float(parts[3])
-                                        city_norm = float(parts[5])
-                                        
-                                        cursor.execute("""
-                                            UPDATE cars SET norm_highway = ?, norm_city = ? 
-                                            WHERE name = ?
-                                        """, (hw_norm, city_norm, car_name))
-                                        conn.commit()
-                                        
-                                        if cursor.rowcount > 0:
-                                            send_message(user_id, f"✅ Нормы для {car_name} обновлены:\nТрасса: {hw_norm:.2f} л/100км\nГород: {city_norm:.2f} л/100км")
-                                        else:
-                                            send_message(user_id, f"❌ Автомобиль '{car_name}' не найден")
-                                    else:
-                                        send_message(user_id, "❌ Неверный формат. Используйте: /set_norm Газель трасса 12.5 город 15.5")
-                                except Exception as e:
-                                    send_message(user_id, f"❌ Ошибка: {e}")
-                                continue
-                        
-                        # ===== ОБРАБОТКА СОСТОЯНИЙ ПОЛЬЗОВАТЕЛЯ =====
+                        # ===== ОБРАБОТКА СОСТОЯНИЙ (для всех пользователей) =====
                         if user_id in user_data:
                             state = user_data[user_id].get('state')
                             
@@ -709,8 +610,107 @@ try:
                                     send_message(user_id, "❌ Такого автомобиля нет в списке. Выберите из предложенных вариантов или нажмите 'Отмена'", get_car_selection_keyboard())
                                 continue
                         
-                        # ===== ОБЫЧНЫЕ КОМАНДЫ =====
-                        elif text == "🚗 Выбрать авто":
+                        # ===== АДМИН-КОМАНДЫ (только для админов) =====
+                        if is_admin(user_id):
+                            if text == "/admin":
+                                send_message(user_id, "👨‍💼 Админ-панель", get_admin_keyboard())
+                                continue
+                            
+                            elif text == "🔙 Выйти из админки":
+                                send_message(user_id, "👋 Вы вышли из админ-панели", get_main_keyboard())
+                                continue
+                                
+                            elif text == "📊 Статистика":
+                                admin_stats(user_id)
+                                continue
+                                
+                            elif text == "📋 Список водителей":
+                                admin_list_drivers(user_id)
+                                continue
+                                
+                            elif text == "🚗 Нормы расхода":
+                                admin_car_norms(user_id)
+                                continue
+                                
+                            elif text == "💰 Пополнить баланс":
+                                send_message(user_id, "💰 Введите ID пользователя и сумму:\nФормат: /topup ID СУММА\nПример: /topup 75074039 100")
+                                continue
+                                
+                            elif text.startswith("/topup"):
+                                try:
+                                    parts = text.split()
+                                    if len(parts) != 3:
+                                        send_message(user_id, "❌ Формат: /topup ID СУММА")
+                                        continue
+                                    target_user = int(parts[1])
+                                    amount = float(parts[2])
+                                    
+                                    cursor.execute("SELECT user_id FROM drivers WHERE user_id = ?", (target_user,))
+                                    if not cursor.fetchone():
+                                        register_driver(target_user, str(target_user))
+                                        cursor.execute("UPDATE drivers SET balance = balance + ? WHERE user_id = ?", (amount, target_user))
+                                    else:
+                                        cursor.execute("UPDATE drivers SET balance = balance + ? WHERE user_id = ?", (amount, target_user))
+                                    
+                                    cursor.execute("INSERT INTO payments (user_id, amount, admin_id) VALUES (?, ?, ?)", (target_user, amount, user_id))
+                                    conn.commit()
+                                    
+                                    new_balance = get_balance(target_user)
+                                    send_message(user_id, f"✅ Баланс пополнен на {amount:.2f} руб\n💰 Новый баланс: {new_balance:.2f} руб")
+                                    
+                                    try:
+                                        send_message(target_user, f"💰 Ваш баланс пополнен на {amount:.2f} руб\nТекущий баланс: {new_balance:.2f} руб")
+                                    except:
+                                        pass
+                                except Exception as e:
+                                    send_message(user_id, f"❌ Ошибка: {e}")
+                                continue
+                                
+                            elif text == "📢 Рассылка":
+                                send_message(user_id, "📢 Введите сообщение для рассылки (для отмены напишите 'отмена'):")
+                                user_data[user_id] = {'state': 'admin_broadcast'}
+                                continue
+                                
+                            elif text == "➕ Добавить водителя":
+                                send_message(user_id, "Введите ID пользователя для добавления:")
+                                user_data[user_id] = {'state': 'admin_add_driver'}
+                                continue
+                                
+                            elif text == "❌ Заблокировать водителя":
+                                send_message(user_id, "Введите ID пользователя для блокировки:")
+                                user_data[user_id] = {'state': 'admin_block_driver'}
+                                continue
+                                
+                            elif text == "📥 Выгрузить Excel":
+                                send_message(user_id, "📥 Функция выгрузки Excel в разработке")
+                                continue
+                                
+                            elif text.startswith("/set_norm"):
+                                try:
+                                    parts = text.split()
+                                    if len(parts) >= 6 and parts[2] == "трасса" and parts[4] == "город":
+                                        car_name = parts[1]
+                                        hw_norm = float(parts[3])
+                                        city_norm = float(parts[5])
+                                        
+                                        cursor.execute("""
+                                            UPDATE cars SET norm_highway = ?, norm_city = ? 
+                                            WHERE name = ?
+                                        """, (hw_norm, city_norm, car_name))
+                                        conn.commit()
+                                        
+                                        if cursor.rowcount > 0:
+                                            send_message(user_id, f"✅ Нормы для {car_name} обновлены:\nТрасса: {hw_norm:.2f} л/100км\nГород: {city_norm:.2f} л/100км")
+                                        else:
+                                            send_message(user_id, f"❌ Автомобиль '{car_name}' не найден")
+                                    else:
+                                        send_message(user_id, "❌ Неверный формат. Используйте: /set_norm Газель трасса 12.5 город 15.5")
+                                except Exception as e:
+                                    send_message(user_id, f"❌ Ошибка: {e}")
+                                continue
+                        
+                        # ===== ОБЫЧНЫЕ КОМАНДЫ (для всех) =====
+                        if text == "🚗 Выбрать авто":
                             send_message(user_id, "🚗 Выберите автомобиль:", get_car_selection_keyboard())
                             user_data[user_id] = {'state': 'selecting_car'}
                             continue
@@ -817,12 +817,13 @@ try:
                                 else:
                                     send_message(user_id, "❌ Ошибка при завершении смены")
                             continue
-                            
+                        
+                        # ===== НЕИЗВЕСТНАЯ КОМАНДА =====
                         else:
-                            if not is_admin(user_id):
-                                send_message(user_id, "Используйте кнопки меню для работы с ботом", get_main_keyboard())
+                            if is_admin(user_id):
+                                send_message(user_id, "Используйте кнопки меню для работы с ботом\nДля входа в админ-панель напишите /admin", get_main_keyboard())
                             else:
-                                send_message(user_id, "Используйте кнопки меню или команду /admin для входа в админ-панель", get_main_keyboard())
+                                send_message(user_id, "Используйте кнопки меню для работы с ботом", get_main_keyboard())
                     
                     except Exception as e:
                         print(f"❌ Ошибка обработки сообщения: {e}")
