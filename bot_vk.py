@@ -404,6 +404,15 @@ for event in longpoll.listen():
                     del user_data[user_id]
                     continue
                     
+                elif state == 'waiting_start_confirm':
+                    if text == "🚑 Начать смену":
+                        send_message(user_id, "🚛 Начало смены.\nВведите пробег на одометре (км):")
+                        user_data[user_id] = {'state': 'waiting_mileage'}
+                    else:
+                        del user_data[user_id]
+                        send_message(user_id, "❌ Отменено.", get_main_keyboard())
+                    continue
+                    
                 elif state == 'waiting_mileage':
                     try:
                         mileage = float(text.replace(',', '.'))
@@ -518,8 +527,15 @@ for event in longpoll.listen():
                     send_message(user_id, f"⚠️ Недостаточно средств. Баланс: {balance:.2f} руб\nСтоимость смены: {PRICE_PER_SHIFT} руб", get_main_keyboard())
                     continue
                 
-                send_message(user_id, "🚛 Начало смены.\nВведите пробег на одометре (км):")
-                user_data[user_id] = {'state': 'waiting_mileage'}
+                # Показываем кнопку для начала смены
+                keyboard = VkKeyboard(one_time=True)
+                keyboard.add_button("🚑 Начать смену", color=VkKeyboardColor.POSITIVE)
+                send_message(
+                    user_id,
+                    f"✅ Готовы начать смену?\n💰 Баланс: {balance:.2f} руб",
+                    keyboard
+                )
+                user_data[user_id] = {'state': 'waiting_start_confirm'}
                 continue
                 
             elif text == "💰 Баланс" or text.lower() == "/balance":
@@ -552,7 +568,19 @@ for event in longpoll.listen():
             elif text == "➕ Поездка":
                 session_id = get_active_session(user_id)
                 if not session_id:
-                    send_message(user_id, "❌ Нет активной смены. Напишите /start")
+                    # Предлагаем начать смену
+                    balance = get_balance(user_id)
+                    if balance >= PRICE_PER_SHIFT:
+                        keyboard = VkKeyboard(one_time=True)
+                        keyboard.add_button("🚑 Начать смену", color=VkKeyboardColor.POSITIVE)
+                        send_message(
+                            user_id,
+                            "❌ Нет активной смены.\n\nНажмите кнопку, чтобы начать:",
+                            keyboard
+                        )
+                        user_data[user_id] = {'state': 'waiting_start_confirm'}
+                    else:
+                        send_message(user_id, f"❌ Нет активной смены и недостаточно средств. Баланс: {balance:.2f} руб")
                     continue
                 user_data[user_id] = {'state': 'waiting_highway', 'session_id': session_id}
                 send_message(user_id, "🛣 Сколько километров по ТРАССЕ? (число)")
@@ -561,7 +589,19 @@ for event in longpoll.listen():
             elif text == "⛽ Заправился":
                 session_id = get_active_session(user_id)
                 if not session_id:
-                    send_message(user_id, "❌ Нет активной смены. Напишите /start")
+                    # Предлагаем начать смену
+                    balance = get_balance(user_id)
+                    if balance >= PRICE_PER_SHIFT:
+                        keyboard = VkKeyboard(one_time=True)
+                        keyboard.add_button("🚑 Начать смену", color=VkKeyboardColor.POSITIVE)
+                        send_message(
+                            user_id,
+                            "❌ Нет активной смены.\n\nНажмите кнопку, чтобы начать:",
+                            keyboard
+                        )
+                        user_data[user_id] = {'state': 'waiting_start_confirm'}
+                    else:
+                        send_message(user_id, f"❌ Нет активной смены и недостаточно средств. Баланс: {balance:.2f} руб")
                     continue
                 user_data[user_id] = {'state': 'waiting_refuel', 'session_id': session_id}
                 send_message(user_id, "⛽ Сколько литров заправили?")
@@ -640,7 +680,23 @@ for event in longpoll.listen():
                 continue
                 
             else:
-                send_message(user_id, "❓ Неизвестная команда\n/start - начать смену\n/balance - баланс\n/help - помощь", get_main_keyboard())
+                # Если нет активной смены - предлагаем начать
+                if not get_active_session(user_id):
+                    balance = get_balance(user_id)
+                    if balance >= PRICE_PER_SHIFT:
+                        keyboard = VkKeyboard(one_time=True)
+                        keyboard.add_button("🚑 Начать смену", color=VkKeyboardColor.POSITIVE)
+                        send_message(
+                            user_id,
+                            f"⚠️ У вас нет активной смены.\n💰 Баланс: {balance:.2f} руб\n\nНажмите кнопку, чтобы начать:",
+                            keyboard
+                        )
+                        user_data[user_id] = {'state': 'waiting_start_confirm'}
+                    else:
+                        send_message(user_id, f"⚠️ Недостаточно средств. Баланс: {balance:.2f} руб", get_main_keyboard())
+                else:
+                    send_message(user_id, "❓ Неизвестная команда\n/start - начать смену\n/balance - баланс", get_main_keyboard())
+                continue
                 
         except Exception as e:
             print(f"Ошибка: {e}")
