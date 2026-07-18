@@ -38,13 +38,12 @@ VK_TOKEN = "vk1.a.iKPy742qB3R9M6tWvmRgk0BuyR2JO36Lp4UZkM0pVH-KmBbL5OLQoYgxTjommX
 VK_GROUP_ID = 240344015
 ADMIN_IDS = [75074039]
 PRICE_PER_SHIFT = 5
-START_BALANCE = 500  # Начальный баланс для новых водителей
+START_BALANCE = 500
 
 # ========== БАЗА ДАННЫХ ==========
 conn = sqlite3.connect("waybills.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# Создание всех таблиц
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS cars (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,7 +109,6 @@ CREATE TABLE IF NOT EXISTS payments (
 )
 """)
 
-# Добавляем начальные данные
 cursor.execute("INSERT OR IGNORE INTO cars (name, norm_highway, norm_city) VALUES (?, ?, ?)", ("Газель", 12.0, 15.0))
 cursor.execute("INSERT OR IGNORE INTO cars (name, norm_highway, norm_city) VALUES (?, ?, ?)", ("УАЗ", 14.5, 18.0))
 
@@ -118,7 +116,6 @@ for admin_id in ADMIN_IDS:
     cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (admin_id,))
 conn.commit()
 
-# Обновляем баланс существующим пользователям, у которых меньше 500
 cursor.execute("UPDATE drivers SET balance = 500 WHERE balance < 500")
 conn.commit()
 
@@ -184,19 +181,15 @@ def get_car_selection_keyboard():
 
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 def send_message(user_id, text, keyboard=None):
-    """Отправка сообщения"""
     try:
         time.sleep(0.1)
-        
         params = {
             'user_id': user_id,
             'random_id': get_random_id(),
             'message': text
         }
-        
         if keyboard:
             params['keyboard'] = keyboard.get_keyboard()
-        
         vk.messages.send(**params)
         return True
     except Exception as e:
@@ -357,7 +350,6 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-# Словарь для хранения состояний пользователей
 user_data = {}
 
 # ========== ОСНОВНОЙ ЦИКЛ ==========
@@ -375,14 +367,12 @@ try:
                     
                 if event.type == VkBotEventType.MESSAGE_NEW:
                     try:
-                        # Игнорируем сообщения от бота и групп
                         if event.message.from_id < 0:
                             continue
                         
                         user_id = event.message.from_id
                         text = event.message.text.strip()
                         
-                        # Получаем информацию о пользователе
                         try:
                             user_info = vk.users.get(user_ids=user_id)
                             username = user_info[0].get('first_name', str(user_id))
@@ -391,14 +381,13 @@ try:
                         
                         register_driver(user_id, username)
                         
-                        # Проверяем, заблокирован ли пользователь
                         cursor.execute("SELECT is_blocked FROM drivers WHERE user_id = ?", (user_id,))
                         result = cursor.fetchone()
                         if result and result[0] == 1 and not is_admin(user_id):
                             send_message(user_id, "⛔ Ваш аккаунт заблокирован. Обратитесь к администратору.")
                             continue
                         
-                        # ===== ОБРАБОТКА СОСТОЯНИЙ (для всех пользователей) =====
+                        # ===== ОБРАБОТКА СОСТОЯНИЙ =====
                         if user_id in user_data:
                             state = user_data[user_id].get('state')
                             
@@ -469,7 +458,6 @@ try:
                                         send_message(user_id, "❌ Пробег не может быть отрицательным!")
                                         continue
                                     
-                                    # Проверяем баланс
                                     balance = get_balance(user_id)
                                     if balance < PRICE_PER_SHIFT:
                                         del user_data[user_id]
@@ -610,7 +598,7 @@ try:
                                     send_message(user_id, "❌ Такого автомобиля нет в списке. Выберите из предложенных вариантов или нажмите 'Отмена'", get_car_selection_keyboard())
                                 continue
                         
-                        # ===== АДМИН-КОМАНДЫ (только для админов) =====
+                        # ===== АДМИН-КОМАНДЫ (проверяем ДО обычных команд) =====
                         if is_admin(user_id):
                             if text == "/admin":
                                 send_message(user_id, "👨‍💼 Админ-панель", get_admin_keyboard())
@@ -709,7 +697,7 @@ try:
                                     send_message(user_id, f"❌ Ошибка: {e}")
                                 continue
                         
-                        # ===== ОБЫЧНЫЕ КОМАНДЫ (для всех) =====
+                        # ===== ОБЫЧНЫЕ КОМАНДЫ =====
                         if text == "🚗 Выбрать авто":
                             send_message(user_id, "🚗 Выберите автомобиль:", get_car_selection_keyboard())
                             user_data[user_id] = {'state': 'selecting_car'}
@@ -722,7 +710,6 @@ try:
                         elif text == "➕ Поездка":
                             session_id = get_active_session(user_id)
                             if not session_id:
-                                # Проверяем баланс перед началом смены
                                 balance = get_balance(user_id)
                                 if balance < PRICE_PER_SHIFT:
                                     send_message(user_id, 
@@ -780,7 +767,6 @@ try:
                                 if s:
                                     balance_before = get_balance(user_id)
                                     
-                                    # Проверяем, хватает ли денег
                                     if balance_before < PRICE_PER_SHIFT:
                                         send_message(user_id, 
                                             f"❌ Недостаточно средств для оплаты смены!\n\n"
@@ -792,7 +778,6 @@ try:
                                         )
                                         continue
                                     
-                                    # Списываем деньги
                                     update_balance(user_id, -PRICE_PER_SHIFT)
                                     balance_after = get_balance(user_id)
                                     
