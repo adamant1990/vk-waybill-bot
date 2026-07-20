@@ -292,6 +292,18 @@ def show_balance(user_id):
     
     send_message(user_id, message, get_main_keyboard())
 
+# ========== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ СУММИРОВАНИЯ ЧИСЕЛ ==========
+def sum_numbers(text):
+    """Разбивает строку по пробелам и суммирует все числа"""
+    try:
+        # Заменяем запятую на точку и разбиваем по пробелам
+        parts = text.replace(',', '.').split()
+        # Суммируем все числа
+        total = sum(float(part) for part in parts)
+        return total, True
+    except:
+        return 0, False
+
 # ========== АДМИН ФУНКЦИИ ==========
 def admin_stats(user_id):
     cursor.execute("SELECT COUNT(*) FROM drivers WHERE is_blocked = 0")
@@ -514,16 +526,16 @@ try:
                                     send_message(user_id, "❌ Добавление поездки отменено", get_main_keyboard())
                                     continue
                                 
-                                try:
-                                    highway = float(text.replace(',', '.'))
-                                    if highway < 0:
-                                        send_message(user_id, "❌ Километраж не может быть отрицательным!")
-                                        continue
-                                    user_data[user_id]['highway'] = highway
+                                total, success = sum_numbers(text)
+                                if success and total >= 0:
+                                    user_data[user_id]['highway'] = total
                                     user_data[user_id]['state'] = 'waiting_city'
-                                    send_message(user_id, "🏙 Введите километраж по городу:")
-                                except:
-                                    send_message(user_id, "❌ Введите число!")
+                                    if len(text.split()) > 1:
+                                        send_message(user_id, f"✅ Трасса (сумма {len(text.split())} значений): {total:.2f} км\n🏙 Теперь введите километраж по городу:")
+                                    else:
+                                        send_message(user_id, f"🏙 Введите километраж по городу:")
+                                else:
+                                    send_message(user_id, "❌ Введите число или несколько чисел через пробел!")
                                 continue
                                 
                             elif state == 'waiting_city':
@@ -532,24 +544,23 @@ try:
                                     send_message(user_id, "❌ Добавление поездки отменено", get_main_keyboard())
                                     continue
                                 
-                                try:
-                                    city = float(text.replace(',', '.'))
-                                    if city < 0:
-                                        send_message(user_id, "❌ Километраж не может быть отрицательным!")
-                                        continue
-                                    
+                                total, success = sum_numbers(text)
+                                if success and total >= 0:
                                     session_id = user_data[user_id]['session_id']
                                     highway = user_data[user_id]['highway']
                                     
-                                    cursor.execute("INSERT INTO trips (session_id, highway, city) VALUES (?, ?, ?)", (session_id, highway, city))
-                                    cursor.execute("UPDATE sessions SET total_highway = total_highway + ?, total_city = total_city + ? WHERE id = ?", (highway, city, session_id))
+                                    cursor.execute("INSERT INTO trips (session_id, highway, city) VALUES (?, ?, ?)", (session_id, highway, total))
+                                    cursor.execute("UPDATE sessions SET total_highway = total_highway + ?, total_city = total_city + ? WHERE id = ?", (highway, total, session_id))
                                     conn.commit()
                                     
                                     del user_data[user_id]
-                                    send_message(user_id, f"✅ Добавлено: трасса {highway:.2f} км, город {city:.2f} км")
+                                    if len(text.split()) > 1:
+                                        send_message(user_id, f"✅ Добавлено: трасса {highway:.2f} км, город (сумма {len(text.split())} значений): {total:.2f} км")
+                                    else:
+                                        send_message(user_id, f"✅ Добавлено: трасса {highway:.2f} км, город {total:.2f} км")
                                     show_stats(user_id, session_id)
-                                except:
-                                    send_message(user_id, "❌ Ошибка!")
+                                else:
+                                    send_message(user_id, "❌ Введите число или несколько чисел через пробел!")
                                 continue
                                 
                             elif state == 'waiting_refuel':
@@ -725,7 +736,7 @@ try:
                                 send_message(user_id, "🚚 Для начала введите начальный пробег (км):")
                                 user_data[user_id] = {'state': 'waiting_mileage'}
                             else:
-                                send_message(user_id, "🛣 Введите километраж по трассе:")
+                                send_message(user_id, "🛣 Введите километраж по трассе (можно несколько чисел через пробел, они суммируются):")
                                 user_data[user_id] = {'state': 'waiting_highway', 'session_id': session_id}
                             continue
                             
@@ -780,23 +791,31 @@ try:
                                     
                                     update_balance(user_id, -PRICE_PER_SHIFT)
                                     balance_after = get_balance(user_id)
+                                    end_mileage = s["start_mileage"] + s["total_km"]
                                     
                                     cursor.execute("UPDATE sessions SET is_active = 0, was_paid = 1, ended_at = CURRENT_TIMESTAMP WHERE id = ?", (session_id,))
                                     conn.commit()
                                     
                                     message = (
-                                        f"✅ Смена завершена!\n\n"
-                                        f"📊 ИТОГИ СМЕНЫ:\n"
-                                        f"🚗 Авто: {s['car_name']}\n"
-                                        f"🛣 Общий пробег: {s['total_km']:.2f} км\n"
-                                        f"   - Трасса: {s['total_hw']:.2f} км\n"
-                                        f"   - Город: {s['total_city']:.2f} км\n"
-                                        f"⛽ Начало смены: {s['start_fuel']:.2f} л\n"
-                                        f"⛽ Заправлено: {s['total_refueled']:.2f} л\n"
-                                        f"📉 Расход по норме: {s['fuel_used']:.2f} л\n"
-                                        f"💧 Остаток: {s['remaining']:.2f} л\n\n"
-                                        f"💰 Списано за смену: {PRICE_PER_SHIFT} руб\n"
-                                        f"💰 Баланс: {balance_before:.2f} → {balance_after:.2f} руб"
+                                        f"📊 ОТЧЁТ ЗА СМЕНУ\n\n"
+                                        f"🚗 Автомобиль: {s['car_name']}\n"
+                                        f"📊 Нормы расхода: трасса {s['norm_hw']:.2f} л/100км, город {s['norm_city']:.2f} л/100км\n\n"
+                                        f"📌 Километраж:\n"
+                                        f"- По трассе: {s['total_hw']:.2f} км\n"
+                                        f"- По городу: {s['total_city']:.2f} км\n"
+                                        f"- Всего: {s['total_km']:.2f} км\n"
+                                        f"- Пробег в начале смены: {s['start_mileage']:.0f} км\n"
+                                        f"- Пробег в конце смены: {end_mileage:.0f} км\n\n"
+                                        f"⛽ Расход топлива (по норме):\n"
+                                        f"- Итого потрачено: {s['fuel_used']:.2f} л\n\n"
+                                        f"📥 Было топлива:\n"
+                                        f"- На начало: {s['start_fuel']:.2f} л\n"
+                                        f"- Заправлено: {s['total_refueled']:.2f} л\n\n"
+                                        f"📤 Остаток в баке: {s['remaining']:.2f} л\n\n"
+                                        f"💰 Оплата:\n"
+                                        f"- Списано: {PRICE_PER_SHIFT} руб\n"
+                                        f"- Остаток: {balance_after:.2f} руб\n\n"
+                                        f"✅ Смена завершена."
                                     )
                                     send_message(user_id, message, get_main_keyboard())
                                 else:
