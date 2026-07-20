@@ -38,7 +38,7 @@ VK_TOKEN = "vk1.a.iKPy742qB3R9M6tWvmRgk0BuyR2JO36Lp4UZkM0pVH-KmBbL5OLQoYgxTjommX
 VK_GROUP_ID = 240344015
 ADMIN_IDS = [1121983645]
 PRICE_PER_SHIFT = 5
-START_BALANCE = 500
+START_BALANCE = 500  # Только для новых пользователей
 
 # ========== БАЗА ДАННЫХ ==========
 conn = sqlite3.connect("waybills.db", check_same_thread=False)
@@ -116,8 +116,11 @@ for admin_id in ADMIN_IDS:
     cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (admin_id,))
 conn.commit()
 
-cursor.execute("UPDATE drivers SET balance = 500 WHERE balance < 500")
-conn.commit()
+# НЕ ОБНУЛЯЕМ БАЛАНС ПРИ КАЖДОМ ЗАПУСКЕ!
+# Баланс меняется только через регистрацию новых пользователей
+# и операции списания/пополнения
+# cursor.execute("UPDATE drivers SET balance = 500 WHERE balance < 500")
+# conn.commit()
 
 print("✅ База данных инициализирована")
 
@@ -206,6 +209,8 @@ def update_balance(user_id, delta):
     conn.commit()
 
 def register_driver(user_id, username):
+    """Регистрирует нового пользователя с балансом START_BALANCE.
+       Если пользователь уже существует, ничего не меняет."""
     cursor.execute("""
         INSERT OR IGNORE INTO drivers (user_id, username, balance, is_blocked, rate_per_shift, selected_car)
         VALUES (?, ?, ?, 0, 5, 'Газель')
